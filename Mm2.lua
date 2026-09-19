@@ -373,4 +373,253 @@ HitMarker.Fire=function()
  HUD.hmH.BackgroundTransparency,HUD.hmV.BackgroundTransparency=0,0
  HUD.hmH.BackgroundColor3,HUD.hmV.BackgroundColor3=Color3.fromRGB(255,90,90),Color3.fromRGB(255,90,90)
  HUD.hm.Size=UDim2.new(0,28,0,28)
- TweenService:Create(HUD.hm,TweenInfo
+ TweenService:Create(HUD.hm,TweenInfo.new(.12,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Size=UDim2.new(0,44,0,44)}):Play()
+ TweenService:Create(HUD.hmH,TweenInfo.new(.26),{BackgroundTransparency=1}):Play()
+ TweenService:Create(HUD.hmV,TweenInfo.new(.26),{BackgroundTransparency=1}):Play()
+end
+
+local function HUD_Update(dt)
+ if not HUD.label then return end; HUD.acc=HUD.acc+dt; if HUD.acc<0.12 then return end; HUD.acc=0
+ local m=State.MurdererPlayer
+ local d5="-"; local hasD=false
+ if m and State.MyRoot then local r=GetRoot(m)
+  if r then d5=floor((r.Position-State.MyRoot.Position).Magnitude/5); hasD=true end end
+ local key=(State.Enabled and 1 or 0) .. "|" .. State.CurrentMode .. "|" .. (m and m.Name or "-") .. "|" .. d5
+ if key==lastHUDKey then return end
+ lastHUDKey=key
+ if not State.Enabled then
+  HUD.label.Text='<font color="#788296">Overdrive H</font>'
+  HUD.dot.BackgroundColor3=Color3.fromRGB(120,130,150)
+  HUD.stroke.Color=Color3.fromRGB(70,80,100); HUD.stroke.Transparency=.55; return
+ end
+ local mt='<font color="#7ec8ff">⚡'..State.CurrentMode..'</font>'
+ if m then
+  local dtxt=hasD and (' <font color="'..dcol(d5*5)..'">'..(d5*5)..'</font>') or ""
+  HUD.label.Text=mt..' <font color="#ff6e6e">▸'..m.Name..'</font>'..dtxt
+  HUD.dot.BackgroundColor3=Color3.fromRGB(255,90,90)
+  HUD.stroke.Color=Color3.fromRGB(255,80,80); HUD.stroke.Transparency=.15
+ else
+  HUD.label.Text=mt..' <font color="#788296">▸—</font>'
+  HUD.dot.BackgroundColor3=Color3.fromRGB(120,180,255)
+  HUD.stroke.Color=Color3.fromRGB(120,180,255); HUD.stroke.Transparency=.25
+ end
+end
+
+-- =============================================================================
+-- OVERDRIVE H PLUGIN UI INTEGRATION
+-- =============================================================================
+local pluginTab = shared.CreateTab(
+    "Ultra Instinct", 
+    "/dogwiener24/Logo/refs/heads/main/png-clipart-white-light-light-desktop-luminous-efficacy-halo-green-fresh-flame-effect-element-white-effect.png"
+)
+
+-- SECTION 1: MAIN CONTROLS
+local mainSec = pluginTab:AddSection("⚡ Main Controls", "CORE PREDICTION ENGINE")
+
+local engineToggleClosure = mainSec:AddToggle("⚡ Activate Engine", function(state)
+    State.Enabled = state
+    if state then 
+        InitBase()
+        UpdateCache()
+        State.Target = nil 
+        notify("Ultra Instinct Engine: ACTIVATED", 2)
+    else 
+        State.Target = nil 
+        notify("Ultra Instinct Engine: DEACTIVATED", 2)
+    end
+end)
+
+mainSec:AddDropdown("Prediction Mode", {"PRO","INSTINCT","SECRETIVE","ANNIHILATING","ADAPTIVE","MIXED","PING100","PING200","PING300_400"}, function(selected)
+    State.CurrentMode = selected
+    lastHUDKey = nil
+    preferences.Set("General", "Mode", selected)
+    notify("Mode switched to: " .. selected, 2)
+end)
+
+mainSec:AddKeybind("Engine Keybind Toggle", "U", function()
+    if engineToggleClosure then
+        engineToggleClosure()
+    end
+end)
+
+mainSec:AddPlayerDropdown("Force Target Lock", function(player)
+    if player then
+        State.ForceTarget = player
+        notify("Target hard locked to: " .. player.Name, 3)
+    else
+        State.ForceTarget = nil
+        notify("Cleared forced target lock.", 2)
+    end
+end)
+
+-- SECTION 2: FINE TUNING & PREDICTION
+local tuneSec = pluginTab:AddSection("🎯 Fine Tuning", "CALIBRATION & COMPENSATIONS")
+
+tuneSec:AddSlider("Lead Multiplier", 0.5, 3.0, State.Settings.leadMultiplier, function(val)
+    State.Settings.leadMultiplier = val
+    preferences.Set("Toggles", "LeadMult", val)
+end)
+
+tuneSec:AddSlider("Vertical Correction", 0.5, 3.0, State.Settings.verticalCorrection, function(val)
+    State.Settings.verticalCorrection = val
+    preferences.Set("Toggles", "VertCorr", val)
+end)
+
+tuneSec:AddSlider("Lock Duration (s)", 1, 10, State.Settings.lockTime, function(val)
+    State.Settings.lockTime = val
+    preferences.Set("Toggles", "LockTime", val)
+end)
+
+tuneSec:AddToggle("Gravity Compensation", function(state)
+    State.Settings.useGravity = state
+    preferences.Set("Toggles", "Gravity", state)
+end)
+
+tuneSec:AddToggle("Drag Compensation", function(state)
+    State.Settings.useDrag = state
+    preferences.Set("Toggles", "Drag", state)
+end)
+
+tuneSec:AddToggle("Predict Jump", function(state)
+    State.Settings.predictJump = state
+    preferences.Set("Toggles", "PredictJump", state)
+end)
+
+tuneSec:AddToggle("Adaptive Lead", function(state)
+    State.Settings.adaptiveLead = state
+    preferences.Set("Toggles", "AdaptiveLead", state)
+end)
+
+tuneSec:AddToggle("Target Lock", function(state)
+    State.Settings.targetLock = state
+    preferences.Set("Toggles", "TargetLock", state)
+end)
+
+-- SECTION 3: USER & TELEMETRY
+local infoSec = pluginTab:AddSection("📊 Telemetry & User Info", "DIAGNOSTICS & STATS")
+
+local userInfoStr = string.format("User: %s | Executor: %s | Tier: %s",
+    tostring(shared.discord_name or "Local User"),
+    tostring(shared.executor or "Unknown"),
+    shared.is_exclusive_user and "Exclusive" or (shared.is_premium_user and "Premium" or (shared.is_serverbooster_user and "Booster" or "Free"))
+)
+infoSec:AddLabel(userInfoStr)
+
+statsParagraph = infoSec:AddParagraph("Session Statistics", "Shots: 0 | Hits: 0 | Acc: - | Kills: 0 | Streak: 0")
+
+infoSec:AddButton("Print Diagnostic Logs (F9)", function()
+    local s = State.Stats
+    local ac = s.Shots > 0 and string.format("%.1f%%", (s.Hits / s.Shots) * 100) or "-"
+    print("══ ULTRA INSTINCT TELEMETRY ══")
+    print("Shots: " .. s.Shots .. " | Hits: " .. s.Hits .. " | Accuracy: " .. ac)
+    print("Kills: " .. s.Kills .. " | Deaths: " .. s.Deaths .. " | Best Streak: " .. s.BestStreak)
+    print("Mode: " .. (State.CurrentMode or "-") .. " | Smooth Ping: " .. floor(State.PingSmooth) .. "ms")
+    notify("Diagnostics printed to F9 Console.", 2)
+end)
+
+-- ====== MAIN LOOP ======
+local _lw=0; local _lastScan=0
+local function tick(dt)
+ if not State.MyRoot or not State.MyRoot.Parent then UpdateCache(); if not State.MyRoot then DecayAdaptive(); return end end
+ CheckHitProxy()
+
+ local rp=LocalPlayer:GetNetworkPing()*1000; if rp<=0 then rp=State.PingSmooth or 100 end; local ping=SmoothPing(rp)
+ local mk=State.CurrentMode; local mode=MODES[mk] or MODES.ADAPTIVE
+
+ if (mk=="ADAPTIVE" or mk=="MIXED") and mode.auto_switch then
+  if ping >= 300 then mode = MODES.PING300_400
+  elseif ping >= 180 then mode = MODES.PING200
+  elseif ping >= 90 then mode = MODES.PING100
+  else mode = ASUB.MID end
+ end
+
+ local target = FindBestTarget()
+ if not target then DecayAdaptive(); return end
+ local tr = GetRoot(target)
+ if not tr then DecayAdaptive(); return end
+
+ local sp, sv = SmoothData(tr, dt)
+ local mp = State.MyRoot.Position
+ local dist = (sp - mp).Magnitude
+ if dist < State.Settings.minDistance or dist > State.Settings.maxDistance then return end
+
+ local lead = CalculateLead(sp, sv, mp, ping, dist)
+ local lx, ly, lz = lead.X, lead.Y, lead.Z
+ local speed = sv.Magnitude
+ local isSpamJumping = DetectSpamJump(sv)
+
+ local lc = State.Settings.leadMultiplier
+ local vc = State.Settings.verticalCorrection
+ local ad = State.AdaptiveOffset
+
+ local cur_offY = mode.offY
+ local hL = clamp((mode.h_base + ping*mode.h_ping + speed*mode.h_speed)*lc + ad.x*3, 50, 500)
+ local vL = clamp((mode.v_base + ping*mode.v_ping + dist*mode.v_dist + ly*2)*vc + ad.y*3, 80, 500)
+ local yO = 0
+ 
+ if isSpamJumping then
+  vL = vL + 55
+  yO = yO + 7
+ elseif State.Settings.predictJump then 
+  local vs = sv.Y
+  if vs > 3 then vL = vL + 35; yO = yO + 3
+  elseif vs < -8 then vL = vL - 25; yO = yO - 4 end 
+ end
+ 
+ if mode.noMissed then hL = hL * 1.05 end
+ local bodyAdjust = (mode.bodyShot and 18) or 0
+ vL = vL - bodyAdjust
+
+ local sim = clamp(mode.sim_base + speed*mode.sim_speed + abs(lx)*.5 + abs(ad.x)*.2, 15, 150)
+ local intv = clamp(mode.int_base + speed*mode.int_speed - abs(lx)*.3 - abs(ad.x)*.1, 5, 120)
+ local oX = mode.offX + lx*.5 + ad.x
+ local oY = cur_offY + ly*.5 + yO + ad.y
+ local oZ = mode.offZ + lz*.5 + ad.z
+
+ ApplyGPL(floor(sim), floor(intv), floor(oX), floor(oY), floor(oZ), floor(hL), floor(vL))
+end
+
+track(RunService.Heartbeat:Connect(function(dt)
+ local now=clock()
+ if now-_lastScan>=MURDERER_SCAN then _lastScan=now; UpdateMurdererCache() end
+ HUD_Update(dt)
+ if State.Enabled then
+  local ok,err=pcall(tick,dt)
+  if not ok then if now-_lw>5 then _lw=now; warn("[UltraInstinct] "..tostring(err)) end end
+ end
+end))
+
+track(Players.PlayerRemoving:Connect(function(p)
+ if State.Target==p then State.Target=nil; State.TargetLockTime=0 end
+ if State.ForceTarget==p then State.ForceTarget=nil end
+ if State.MurdererPlayer==p then State.MurdererPlayer=nil end
+ State.ThreatMap[p]=nil
+end))
+
+track(LocalPlayer.CharacterAdded:Connect(function()
+ UpdateCache(); State.Target=nil; State.TargetLockTime=0; State.LastCheck=0; resetSmooth(); lastHUDKey=nil
+end))
+
+local function hookChar(char)
+ local hum=char:WaitForChild("Humanoid",5)
+ if hum then track(hum.Died:Connect(function() State.Stats.Deaths=State.Stats.Deaths+1; State.Stats.CurrentStreak=0 end)) end
+ local function hookTool(it) if it:IsA("Tool") then track(it.Activated:Connect(function()
+  if State.Enabled and State.WeaponType=="gun" then State.Stats.Shots=State.Stats.Shots+1; ArmShot(State.Target) end
+ end)) end end
+ for _,it in ipairs(char:GetChildren()) do hookTool(it) end
+ track(char.ChildAdded:Connect(hookTool))
+end
+track(LocalPlayer.CharacterAdded:Connect(hookChar))
+pcall(function() if LocalPlayer.Character then hookChar(LocalPlayer.Character) end end)
+
+local function cleanup()
+ State.Enabled=false; for _,c in ipairs(_conns) do pcall(function() c:Disconnect() end) end; _conns={}
+ pcall(function() if HUD.gui then HUD.gui:Destroy() end end)
+ HUD.gui,HUD.label,HUD.stroke,HUD.dot,HUD.hm,HUD.hmH,HUD.hmV=nil,nil,nil,nil,nil,nil,nil
+ lastHUDKey=nil
+ if _G.__UI_CLEANUP==cleanup then _G.__UI_CLEANUP=nil end
+end
+_G.__UI_CLEANUP=cleanup
+
+UpdateCache(); UpdateMurdererCache(); HUD_Init()
+notify("Ultra Instinct V24.8.2 ODH Plugin Loaded Successfully!", 4)
