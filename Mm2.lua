@@ -1,7 +1,81 @@
 -- =============================================================================
--- ⚡ ULTRA INSTINCT V24.8.2 PERF (SYNTAX FIX + NEW MODES)
+-- ⚡ ULTRA INSTINCT V24.8.2 PERF (NATIVE OVERDRIVE H PLUGIN EDITION)
 -- =============================================================================
 local shared = odh_shared_plugins
+if not shared or type(shared.CreateTab) ~= "function" then
+    warn("[Ultra Instinct] Please execute this script through the Overdrive H plugin system.")
+    return
+end
+
+local RUNTIME_KEY = "BetterODH_UltraInstinct_2026"
+if type(_G[RUNTIME_KEY]) == "table" then
+    if type(shared.Notify) == "function" then
+        pcall(shared.Notify, "Ultra Instinct is already loaded.", 3)
+    end
+    return
+end
+
+local runtime = { version = "24.8.2 PERF" }
+_G[RUNTIME_KEY] = runtime
+
+local function notify(text, seconds)
+    if type(shared.Notify) == "function" then 
+        pcall(shared.Notify, text, seconds or 4) 
+    end
+end
+
+-- Durable preferences system
+local preferences = (function()
+    local P = {file="UltraInstinct_settings.json", data={version=1, controls={}}, status="Not saved"}
+    local env={}
+    if type(getgenv)=="function" then
+        local ok,result=pcall(getgenv)
+        if ok and type(result)=="table" then env=result end
+    end
+    local read=type(readfile)=="function" and readfile or env.readfile
+    local write=type(writefile)=="function" and writefile or env.writefile
+    local exists=type(isfile)=="function" and isfile or env.isfile
+    local okHttp,http=pcall(function() return game:GetService("HttpService") end)
+    P.available=type(read)=="function" and type(write)=="function" and okHttp and http~=nil
+    
+    function P.Get(section,key)
+        local group=P.data.controls[section]
+        if type(group)=="table" then return group[key] end
+    end
+    function P.Save()
+        if not P.available then return false end
+        local ok,err=pcall(function() write(P.file,http:JSONEncode(P.data)) end)
+        return ok
+    end
+    function P.Set(section,key,value)
+        if typeof(value)=="Color3" then value={color3={value.R,value.G,value.B}} end
+        if type(P.data.controls[section])~="table" then P.data.controls[section]={} end
+        P.data.controls[section][key]=value
+        return P.Save()
+    end
+    if P.available then
+        local found=true
+        if type(exists)=="function" then
+            local ok,result=pcall(exists,P.file)
+            if ok then found=result end
+        end
+        if found then
+            local ok,text=pcall(read,P.file)
+            if ok then
+                local decoded,data=pcall(function() return http:JSONDecode(text) end)
+                if decoded and type(data)=="table" and data.version==1 and type(data.controls)=="table" then
+                    P.data=data
+                end
+            end
+        end
+    end
+    return P
+end)()
+runtime.preferences = preferences
+
+-- =============================================================================
+-- ULTRA INSTINCT CORE LOGIC
+-- =============================================================================
 local internal_shared = odh_internal_shared
 local gpl_preset = internal_shared and internal_shared.MM2_GPL or nil
 
@@ -16,7 +90,7 @@ local clock,time = os.clock,os.time
 local tinsert = table.insert
 local V3 = Vector3.new
 
-local VERSION = "24.8.2 PERF"
+local VERSION = runtime.version
 local GRAVITY, BULLET_SPEED = 196.2, 10000
 local DEFAULT_REACTION, ADAPTIVE_GAIN, MAX_ADAPT = 0, 0.05, 8.0
 local MAX_THREAT, HYSTERESIS, HIT_WINDOW, DEAD_ZONE = 500, 15, 0.6, 0.2
@@ -37,6 +111,7 @@ local MODES = {
  PING200      = {h_base=90,h_ping=.65,h_speed=0.04,v_base=170,v_ping=.50,v_dist=.35,sim_base=66,sim_speed=.70,int_base=59,int_speed=-.10,offX=-6,offY=-57,offZ=0,noMissed=true,antiSpam=true,bodyShot=true,desc="Optimized for 200+ ms Ping"},
  PING300_400  = {h_base=90,h_ping=.92,h_speed=0.05,v_base=177,v_ping=.72,v_dist=.45,sim_base=70,sim_speed=.85,int_base=72,int_speed=-.05,offX=-10,offY=-67,offZ=0,noMissed=true,antiSpam=true,bodyShot=true,desc="Ultra Compensation for 300-400 ms Ping"},
 }
+
 local ASUB = {
  CLOSE={h_base=90,h_ping=.30,h_speed=0.2,v_base=115,v_ping=.20,v_dist=.24,sim_base=40,sim_speed=.55,int_base=138,int_speed=-5,offX=-5,offY=-68,offZ=-2},
  MID  ={h_base=91,h_ping=.24,h_speed=0.0,v_base=150,v_ping=.16,v_dist=.20,sim_base=58,sim_speed=.45,int_base=85,int_speed=-3.5,offX=-11,offY=-148,offZ=-1},
@@ -45,36 +120,32 @@ local ASUB = {
  HIGH_PING_MID={h_base=155,h_ping=.75,h_speed=0.03,v_base=115,v_ping=.58,v_dist=.38,sim_base=35,sim_speed=.75,int_base=90,int_speed=-.10,offX=30,offY=-89,offZ=0,noMissed=true,antiSpam=true,bodyShot=true},
 }
 
+local savedMode = preferences.Get("General", "Mode") or "MIXED"
+
 local State = {
- Enabled=false, Target=nil, TargetScore=-1e9, TargetLockTime=0, LastCheck=0,
+ Enabled=false, Target=nil, ForceTarget=nil, TargetScore=-1e9, TargetLockTime=0, LastCheck=0,
  LastApplied={H=-999,V=-999,Sim=-999,Int=-999,X=-999,Y=-999,Z=-999},
  MyRoot=nil, MyChar=nil, SmoothPos=nil, SmoothVel=nil,
- PingHistory={}, PingSmooth=60, CurrentMode="MIXED",
+ PingHistory={}, PingSmooth=60, CurrentMode=savedMode,
  MurdererPlayer=nil,
- Settings={leadMultiplier=1,verticalCorrection=1,reactionTime=DEFAULT_REACTION,minDistance=3,maxDistance=350,
-   useGravity=true,useDrag=true,predictJump=true,targetLock=true,lockTime=2,prioritySystem=true,
-   adaptiveLead=true,adaptiveGain=ADAPTIVE_GAIN,maxAdaptiveOffset=MAX_ADAPT},
+ Settings={
+   leadMultiplier=preferences.Get("Toggles", "LeadMult") or 1,
+   verticalCorrection=preferences.Get("Toggles", "VertCorr") or 1,
+   reactionTime=DEFAULT_REACTION,minDistance=3,maxDistance=350,
+   useGravity=preferences.Get("Toggles", "Gravity") ~= false,
+   useDrag=preferences.Get("Toggles", "Drag") ~= false,
+   predictJump=preferences.Get("Toggles", "PredictJump") ~= false,
+   targetLock=preferences.Get("Toggles", "TargetLock") ~= false,
+   adaptiveLead=preferences.Get("Toggles", "AdaptiveLead") ~= false,
+   lockTime=preferences.Get("Toggles", "LockTime") or 2,
+   prioritySystem=true,adaptiveGain=ADAPTIVE_GAIN,maxAdaptiveOffset=MAX_ADAPT
+ },
  Stats={Shots=0,Hits=0,Kills=0,Deaths=0,StartTime=time(),BestStreak=0,CurrentStreak=0},
  ErrorHistory={}, AdaptiveOffset={x=0,y=0,z=0}, AdaptiveConfidence=.5,
  ThreatMap={}, WeaponType="knife", LastShotTime=0, LastShotTarget=nil, ShotArmed=false,
  LastJumpY=0, JumpCooldown=0,
 }
 local HitMarker = {}
-
-local function IsMiniAvatar(p)
- if not p or not p.Character then return false end
- local c = p.Character
- local hum = c:FindFirstChildOfClass("Humanoid")
- if hum then
-  if hum.HipHeight < 1.2 then return true end
-  local depthScale = c:FindFirstChild("BodyDepthScale")
-  local heightScale = c:FindFirstChild("BodyHeightScale")
-  if (depthScale and depthScale.Value < 0.75) or (heightScale and heightScale.Value < 0.75) then
-   return true
-  end
- end
- return false
-end
 
 local function GetRoot(p) local c=p and p.Character; return c and c:FindFirstChild("HumanoidRootPart") end
 local function UpdateCache()
@@ -95,7 +166,7 @@ local function HasWeapon(p,types)
  types=types or {"knife","blade","dagger","sword","gun","pistol","revolver"}
  local function ck(c) if not c then return false end
   for _,it in ipairs(c:GetChildren()) do if it:IsA("Tool") then local n=it.Name:lower()
-   for _,t in ipairs(types) do if n:find(t) then return true end end end end return false end
+   for _,t in ipairs(types) do if n:find(t) then return true end end end return false end
  return ck(p.Character) or ck(p:FindFirstChild("Backpack"))
 end
 
@@ -137,22 +208,6 @@ local function DetectSpamJump(sv)
  return currentY > 8 and (clock() - State.JumpCooldown) < 0.5
 end
 
-local function AdaptiveCorrection(err)
- if not State.Settings.adaptiveLead then return end
- local e=V3(abs(err.X)<DEAD_ZONE and 0 or err.X, abs(err.Y)<DEAD_ZONE and 0 or err.Y, abs(err.Z)<DEAD_ZONE and 0 or err.Z)
- local h=State.ErrorHistory; tinsert(h,e); if #h>30 then table.remove(h,1) end
- if #h>=10 then
-  local avg=V3(0,0,0); for _,x in ipairs(h) do avg=avg+x end; avg=avg/#h
-  local var=0; for _,x in ipairs(h) do var=var+(x-avg).Magnitude end; var=var/#h
-  State.AdaptiveConfidence=State.AdaptiveConfidence*.8+clamp(1-var*.12,.2,1)*.2
-  local g=State.Settings.adaptiveGain*State.AdaptiveConfidence; local m=State.Settings.maxAdaptiveOffset
-  State.AdaptiveOffset.x=clamp(State.AdaptiveOffset.x+avg.X*g,-m,m)
-  State.AdaptiveOffset.y=clamp(State.AdaptiveOffset.y+avg.Y*g,-m,m)
-  State.AdaptiveOffset.z=clamp(State.AdaptiveOffset.z+avg.Z*g,-m,m)
-  State.ErrorHistory={}
- end
-end
-
 local function DecayAdaptive()
  local o=State.AdaptiveOffset; o.x,o.y,o.z=o.x*.9,o.y*.9,o.z*.9
  if abs(o.x)<.01 then o.x=0 end; if abs(o.y)<.01 then o.y=0 end; if abs(o.z)<.01 then o.z=0 end
@@ -175,6 +230,10 @@ end
 local function resetSmooth() State.SmoothPos,State.SmoothVel=nil,nil end
 
 local function FindBestTarget()
+ if State.ForceTarget and State.ForceTarget.Parent == Players and State.ForceTarget.Character then
+  local hum = State.ForceTarget.Character:FindFirstChild("Humanoid")
+  if hum and hum.Health > 0 then return State.ForceTarget end
+ end
  local now=clock()
  if State.Settings.targetLock and State.Target and State.Target.Parent==Players then
   local c=State.Target.Character
@@ -224,13 +283,26 @@ local function InitBase()
  pcall(function() if not internal_shared["RevertSettings_PredictLag"]          and gpl_preset[3] then gpl_preset[3]() end end)
 end
 
+local statsParagraph = nil
+
 local function RegisterHit()
  local s=State.Stats; s.Hits=s.Hits+1; s.Kills=s.Kills+1; s.CurrentStreak=s.CurrentStreak+1
  if s.CurrentStreak>s.BestStreak then s.BestStreak=s.CurrentStreak end
  State.ShotArmed=false; if HitMarker.Fire then HitMarker.Fire() end
+ if statsParagraph then
+  local ac = s.Shots > 0 and string.format("%.1f%%", (s.Hits / s.Shots) * 100) or "-"
+  statsParagraph:SetValue(string.format("Shots: %d | Hits: %d | Acc: %s | Kills: %d | Streak: %d", s.Shots, s.Hits, ac, s.Kills, s.CurrentStreak))
+ end
 end
 
-local function ArmShot(t) State.LastShotTime=clock(); State.LastShotTarget=t; State.ShotArmed=true end
+local function ArmShot(t) 
+ State.LastShotTime=clock(); State.LastShotTarget=t; State.ShotArmed=true 
+ if statsParagraph then
+  local s = State.Stats
+  local ac = s.Shots > 0 and string.format("%.1f%%", (s.Hits / s.Shots) * 100) or "-"
+  statsParagraph:SetValue(string.format("Shots: %d | Hits: %d | Acc: %s | Kills: %d | Streak: %d", s.Shots, s.Hits, ac, s.Kills, s.CurrentStreak))
+ end
+end
 
 local function CheckHitProxy()
  if not State.ShotArmed then return end
@@ -285,7 +357,7 @@ local function HUD_Init()
  Instance.new("UICorner",dot).CornerRadius=UDim.new(1,0)
  local lb=Instance.new("TextLabel",f); lb.LayoutOrder=2; lb.Size=UDim2.new(0,0,1,0); lb.AutomaticSize=Enum.AutomaticSize.X
  lb.BackgroundTransparency=1; lb.Font=Enum.Font.GothamBold; lb.RichText=true
- lb.Text='<font color="#788296">Dealdough</font>'; lb.TextColor3=Color3.fromRGB(220,230,240); lb.TextSize=11; lb.ZIndex=11
+ lb.Text='<font color="#788296">Overdrive H</font>'; lb.TextColor3=Color3.fromRGB(220,230,240); lb.TextSize=11; lb.ZIndex=11
  local hm=Instance.new("Frame"); hm.Name="@hitmarker"; hm.Size=UDim2.new(0,40,0,40)
  hm.Position=UDim2.new(.5,0,.5,0); hm.AnchorPoint=Vector2.new(.5,.5); hm.BackgroundTransparency=1; hm.ZIndex=12; hm.Parent=sg
  local hmH=Instance.new("Frame",hm); hmH.Size=UDim2.new(0,24,0,2); hmH.Position=UDim2.new(.5,0,.5,0); hmH.AnchorPoint=Vector2.new(.5,.5)
@@ -301,56 +373,4 @@ HitMarker.Fire=function()
  HUD.hmH.BackgroundTransparency,HUD.hmV.BackgroundTransparency=0,0
  HUD.hmH.BackgroundColor3,HUD.hmV.BackgroundColor3=Color3.fromRGB(255,90,90),Color3.fromRGB(255,90,90)
  HUD.hm.Size=UDim2.new(0,28,0,28)
- TweenService:Create(HUD.hm,TweenInfo.new(.12,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Size=UDim2.new(0,44,0,44)}):Play()
- TweenService:Create(HUD.hmH,TweenInfo.new(.26),{BackgroundTransparency=1}):Play()
- TweenService:Create(HUD.hmV,TweenInfo.new(.26),{BackgroundTransparency=1}):Play()
-end
-
-local function HUD_Update(dt)
- if not HUD.label then return end; HUD.acc=HUD.acc+dt; if HUD.acc<0.12 then return end; HUD.acc=0
- local m=State.MurdererPlayer
- local d5="-"; local hasD=false
- if m and State.MyRoot then local r=GetRoot(m)
-  if r then d5=floor((r.Position-State.MyRoot.Position).Magnitude/5); hasD=true end end
- local key=(State.Enabled and 1 or 0) .. "|" .. State.CurrentMode .. "|" .. (m and m.Name or "-") .. "|" .. d5
- if key==lastHUDKey then return end
- lastHUDKey=key
- if not State.Enabled then
-  HUD.label.Text='<font color="#788296">Dealdough</font>'
-  HUD.dot.BackgroundColor3=Color3.fromRGB(120,130,150)
-  HUD.stroke.Color=Color3.fromRGB(70,80,100); HUD.stroke.Transparency=.55; return
- end
- local mt='<font color="#7ec8ff">⚡'..State.CurrentMode..'</font>'
- if m then
-  local dtxt=hasD and (' <font color="'..dcol(d5*5)..'">'..(d5*5)..'</font>') or ""
-  HUD.label.Text=mt..' <font color="#ff6e6e">▸'..m.Name..'</font>'..dtxt
-  HUD.dot.BackgroundColor3=Color3.fromRGB(255,90,90)
-  HUD.stroke.Color=Color3.fromRGB(255,80,80); HUD.stroke.Transparency=.15
- else
-  HUD.label.Text=mt..' <font color="#788296">▸—</font>'
-  HUD.dot.BackgroundColor3=Color3.fromRGB(120,180,255)
-  HUD.stroke.Color=Color3.fromRGB(120,180,255); HUD.stroke.Transparency=.25
- end
-end
-
--- ====== MENU SETUP (UPDATED OVERDRIVE H PLUGIN API) ======
-local tab = (shared and shared.CreateTab) and shared.CreateTab("Ultra Instinct", "rbxassetid://6031280882") or nil
-local section = (tab and tab.AddSection) and tab:AddSection("⚡ ULTRA INSTINCT " .. VERSION, "PERFORMANCE MODE") 
-    or (shared and shared.AddSection and shared.AddSection("⚡ ULTRA INSTINCT "..VERSION)) or nil
-
-if not section then
-  section = {
-    AddToggle = function() return function() end end,
-    AddDropdown = function() return function() end end,
-    AddButton = function() return function() end end,
-  }
-end
-
-section:AddToggle("⚡ АКТИВИРОВАТЬ", function(st)
- State.Enabled=st
- if st then InitBase(); UpdateCache(); State.Target=nil else State.Target=nil end
-end)
-section:AddDropdown("Режим", {"PRO","INSTINCT","SECRETIVE","ANNIHILATING","ADAPTIVE","MIXED","PING100","PING200","PING300_400"}, function(s) State.CurrentMode=s; lastHUDKey=nil end)
-
-local g = section:AddToggle("Gravity", function(s) State.Settings.useGravity=s end); pcall(function() g(true) end)
-local d = section:AddToggle("Drags", function(s) State.Settings.useDrag=s end); pcall(function() d(tr
+ TweenService:Create(HUD.hm,TweenInfo
