@@ -429,13 +429,29 @@ end
 -- =============================================================================
 -- OVERDRIVE H PLUGIN UI INTEGRATION
 -- =============================================================================
-local pluginTab = shared.CreateTab(
-    "Ultra Instinct", 
-    "/dogwiener24/Logo/refs/heads/main/png-clipart-white-light-light-desktop-luminous-efficacy-halo-green-fresh-flame-effect-element-white-effect.png"
-    )
+if not pluginTab then
+    warn("[Ultra Instinct] Plugin tab is unavailable.")
+    return
+end
+
+local function createSection(title, description)
+    local ok, section = pcall(function()
+        return pluginTab:AddSection(title, description)
+    end)
+
+    if not ok or not section then
+        warn("[Ultra Instinct] AddSection failed: " .. tostring(section))
+        return nil
+    end
+
+    return section
+    end
 
 -- SECTION 1: MAIN CONTROLS
-local mainSec = pluginTab:AddSection("⚡ Main Controls", "CORE PREDICTION ENGINE")
+local mainSec = createSection("⚡ Main Controls", "CORE PREDICTION ENGINE")
+if not mainSec then
+    return
+    end
 
 local engineToggleClosure = mainSec:AddToggle("⚡ Activate Engine", function(state)
     State.Enabled = state
@@ -474,7 +490,10 @@ mainSec:AddPlayerDropdown("Force Target Lock", function(player)
 end)
 
 -- SECTION 2: FINE TUNING & PREDICTION
-local tuneSec = pluginTab:AddSection("🎯 Fine Tuning", "CALIBRATION & COMPENSATIONS")
+local tuneSec = createSection("🎯 Fine Tuning", "CALIBRATION & COMPENSATIONS")
+if not tuneSec then
+    return
+    end
 
 tuneSec:AddSlider("Lead Multiplier", 0.5, 3.0, State.Settings.leadMultiplier, function(val)
     State.Settings.leadMultiplier = val
@@ -517,8 +536,10 @@ tuneSec:AddToggle("Target Lock", function(state)
 end)
 
 -- SECTION 3: USER & TELEMETRY
-local infoSec = pluginTab:AddSection("📊 Telemetry & User Info", "DIAGNOSTICS & STATS")
-
+local infoSec = createSection("📊 Telemetry & User Info", "DIAGNOSTICS & STATS")
+if not infoSec then
+    return
+    end
 local userInfoStr = string.format("User: %s | Executor: %s | Tier: %s",
     tostring(shared.discord_name or "Local User"),
     tostring(shared.executor or "Unknown"),
