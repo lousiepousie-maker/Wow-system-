@@ -22,7 +22,7 @@ end
 local tabOK, pluginTab = pcall(function()
     return shared.CreateTab(
         "Ultra Instinct",
-        "/axioriasolver/testplugin/refs/heads/main/icon"
+        "/lousiepousie-maker/Wow-system-/refs/heads/main/Wowsystem"
     )
 end)
 
