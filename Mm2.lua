@@ -1,13 +1,17 @@
 -- =============================================================================
--- ⚡ ULTRA INSTINCT V24.8.2 PERF (NATIVE OVERDRIVE H PLUGIN EDITION)
+-- ⚡ ULTRA INSTINCT V24.8.3 PERF
+-- Native Overdrive H Plugin Edition
 -- =============================================================================
+
 local shared = odh_shared_plugins
-if not shared or type(shared.CreateTab) ~= "function" then
-    warn("[Ultra Instinct] Please execute this script through the Overdrive H plugin system.")
+
+if type(shared) ~= "table" or type(shared.CreateTab) ~= "function" then
+    warn("[Ultra Instinct] Load this file through the Overdrive H plugin menu.")
     return
 end
 
 local RUNTIME_KEY = "BetterODH_UltraInstinct_2026"
+
 if type(_G[RUNTIME_KEY]) == "table" then
     if type(shared.Notify) == "function" then
         pcall(shared.Notify, "Ultra Instinct is already loaded.", 3)
@@ -15,7 +19,24 @@ if type(_G[RUNTIME_KEY]) == "table" then
     return
 end
 
-local runtime = { version = "24.8.2 PERF" }
+local tabOK, pluginTab = pcall(function()
+    return shared.CreateTab(
+        "Ultra Instinct",
+        "/axioriasolver/testplugin/refs/heads/main/icon"
+    )
+end)
+
+if not tabOK or not pluginTab then
+    warn("[Ultra Instinct] CreateTab failed: " .. tostring(pluginTab))
+    return
+end
+
+local runtime = {
+    version = "24.8.3 PERF",
+    shared = shared,
+    tab = pluginTab
+}
+
 _G[RUNTIME_KEY] = runtime
 
 local function notify(text, seconds)
@@ -411,7 +432,7 @@ end
 local pluginTab = shared.CreateTab(
     "Ultra Instinct", 
     "/dogwiener24/Logo/refs/heads/main/png-clipart-white-light-light-desktop-luminous-efficacy-halo-green-fresh-flame-effect-element-white-effect.png"
-)
+    )
 
 -- SECTION 1: MAIN CONTROLS
 local mainSec = pluginTab:AddSection("⚡ Main Controls", "CORE PREDICTION ENGINE")
